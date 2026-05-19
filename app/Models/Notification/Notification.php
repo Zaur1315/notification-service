@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Models;
+namespace app\Models\Notification;
 
 use App\Domain\Notification\Enums\NotificationChannel;
 use App\Domain\Notification\Enums\NotificationPriority;
