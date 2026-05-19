@@ -6,10 +6,8 @@ namespace App\Domain\Notification\Enums;
 
 enum NotificationPriority: string
 {
-    case Queued = 'queued';
-    case Sent = 'sent';
-    case Delivered = 'delivered';
-    case Dropped = 'dropped';
+    case Transactional = 'transactional';
+    case Marketing = 'marketing';
 
     public static function values(): array
     {
