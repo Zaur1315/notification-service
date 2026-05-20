@@ -6,14 +6,20 @@ namespace App\Domain\Notification\Services;
 
 use App\Domain\Notification\DTO\StoreNotificationData;
 use App\Domain\Notification\Enums\NotificationStatus;
+use App\Infrastructure\RabbitMQ\NotificationQueuePublisher;
 use App\Models\Notification\Notification;
 use Illuminate\Support\Facades\DB;
 
 final class NotificationCreationService
 {
+    public function __construct(
+        private readonly NotificationQueuePublisher $queuePublisher,
+    ) {
+    }
+
     public function create(StoreNotificationData $data): Notification
     {
-        return DB::transaction(static function () use ($data): Notification {
+        $notification = DB::transaction(function () use ($data): Notification {
             $notification = Notification::query()->create([
                 'channel' => $data->channel,
                 'priority' => $data->priority,
@@ -43,5 +49,19 @@ final class NotificationCreationService
 
             return $notification->load('recipients');
         });
+
+        /*
+         * Publishing happens after database commit.
+         * This prevents workers from receiving a message before the recipient row
+         * becomes durable in PostgreSQL.
+         */
+        foreach ($notification->recipients as $recipient) {
+            $this->queuePublisher->publishRecipient(
+                notificationRecipientId: $recipient->id,
+                priority: $data->priority,
+            );
+        }
+
+        return $notification;
     }
 }
