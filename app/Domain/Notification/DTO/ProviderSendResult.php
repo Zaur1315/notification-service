@@ -10,6 +10,7 @@ final readonly class ProviderSendResult
         public bool $success,
         public ?string $providerMessageId = null,
         public ?string $errorMessage = null,
+        public bool $temporaryFailure = false,
     ) {
     }
 }

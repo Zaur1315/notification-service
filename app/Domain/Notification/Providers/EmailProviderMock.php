@@ -12,9 +12,17 @@ final class EmailProviderMock implements NotificationProviderInterface
 {
     public function send(NotificationRecipient $recipient): ProviderSendResult
     {
+        if ((int) $recipient->getAttribute('subscriber_id') === 999) {
+            return new ProviderSendResult(
+                success: false,
+                errorMessage: 'Temporary SMS provider failure.',
+                temporaryFailure: true,
+            );
+        }
+
         return new ProviderSendResult(
             success: true,
-            providerMessageId: sprintf('email_mock_%d_%s', $recipient->id, uniqid()),
+            providerMessageId: sprintf('sms_mock_%d_%s', $recipient->getKey(), uniqid()),
         );
     }
 
