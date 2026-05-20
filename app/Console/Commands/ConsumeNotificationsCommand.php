@@ -8,14 +8,17 @@ use App\Domain\Notification\Enums\NotificationStatus;
 use App\Domain\Notification\Exceptions\TemporaryProviderFailureException;
 use App\Domain\Notification\Services\NotificationDeliveryService;
 use App\Infrastructure\RabbitMQ\RabbitMQConnectionFactory;
-use app\Models\Notification\NotificationRecipient;
+use App\Models\Notification\NotificationRecipient;
 use Illuminate\Console\Command;
+use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use Throwable;
 
 final class ConsumeNotificationsCommand extends Command
 {
-    protected $signature = 'notifications:consume {--limit=0 : Number of messages to process before stopping}';
+    protected $signature = 'notifications:consume
+        {--limit=0 : Number of messages to process before stopping}
+        {--once : Stop when no message is currently available}';
 
     protected $description = 'Consume notification messages from RabbitMQ queues.';
 
@@ -121,7 +124,14 @@ final class ConsumeNotificationsCommand extends Command
         $this->info('Notification consumer started.');
 
         while ($channel->is_consuming()) {
-            $channel->wait();
+            try {
+                $channel->wait(null, false, $this->option('once') ? 1 : 0);
+            } catch (AMQPTimeoutException $exception) {
+                if ($this->option('once')) {
+                    break;
+                }
+                throw $exception;
+            }
         }
 
         $channel->close();
