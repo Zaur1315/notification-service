@@ -10,9 +10,11 @@ use App\Domain\Notification\Services\NotificationDeliveryService;
 use App\Infrastructure\RabbitMQ\RabbitMQConnectionFactory;
 use App\Models\Notification\NotificationRecipient;
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use Throwable;
+
 
 final class ConsumeNotificationsCommand extends Command
 {
@@ -25,19 +27,19 @@ final class ConsumeNotificationsCommand extends Command
     private int $processedMessages = 0;
 
     /**
-     * @throws \Exception
+     * @throws Throwable
      */
     public function handle(
-        RabbitMQConnectionFactory $connectionFactory,
+        RabbitMQConnectionFactory   $connectionFactory,
         NotificationDeliveryService $deliveryService,
-    ): int {
+    ): int
+    {
         $connection = $connectionFactory->create();
         $channel = $connection->channel();
 
         /*
-         * Qos prefetch is set to 1 to avoid taking too many messages at once.
-         * This keeps delivery predictable and makes retry/failure behaviour easier
-         * to reason about.
+         * Prefetch = 1 prevents one worker from reserving many messages at once.
+         * This keeps delivery predictable and preserves fair processing between workers.
          */
         $channel->basic_qos(
             prefetch_size: 0,
@@ -45,79 +47,24 @@ final class ConsumeNotificationsCommand extends Command
             a_global: false,
         );
 
-        $limit = (int) $this->option('limit');
+        $limit = (int)$this->option('limit');
 
         $callback = function (AMQPMessage $message) use ($deliveryService, $limit): void {
-            try {
-                $payload = json_decode($message->getBody(), true, 512, JSON_THROW_ON_ERROR);
-
-                $recipientId = (int) ($payload['notification_recipient_id'] ?? 0);
-
-                if ($recipientId <= 0) {
-                    throw new \InvalidArgumentException('Invalid notification_recipient_id payload.');
-                }
-
-                $deliveryService->send($recipientId);
-
-                /*
-                 * Ack is sent only after the database transaction and provider call
-                 * are completed successfully. This gives us at-least-once delivery.
-                 */
-                $message->ack();
-
-                $this->processedMessages++;
-                $this->info(sprintf('Processed notification recipient #%d', $recipientId));
-
-                if ($limit > 0 && $this->processedMessages >= $limit) {
-                    $message->getChannel()->stopConsume();
-                }
-            } catch (Throwable $exception) {
-                /*
-                 * For the current branch we reject broken messages without requeue.
-                 * Retry and dead-letter handling will be implemented in the reliability branch.
-                 */
-                if ($exception instanceof TemporaryProviderFailureException) {
-                    $this->handleTemporaryFailure($message, $exception);
-
-                    if ($limit > 0) {
-                        $message->getChannel()->stopConsume();
-                    }
-
-                    return;
-                }
-
-                $message->reject(false);
-
-                $this->error($exception->getMessage());
-
-                if ($limit > 0) {
-                    $message->getChannel()->stopConsume();
-                }
-            }
+            $this->processMessage($message, $deliveryService, $limit);
         };
 
         /*
-         * High-priority queue is consumed first.
-         * If both queues contain messages, transactional notifications are handled
-         * before marketing notifications.
+         * The high-priority queue is registered first.
+         * Transactional messages therefore get a chance to be consumed before
+         * marketing/default traffic when both queues contain pending messages.
          */
         $channel->basic_consume(
             queue: config('rabbitmq.queues.high'),
-            consumer_tag: '',
-            no_local: false,
-            no_ack: false,
-            exclusive: false,
-            nowait: false,
             callback: $callback,
         );
 
         $channel->basic_consume(
             queue: config('rabbitmq.queues.default'),
-            consumer_tag: '',
-            no_local: false,
-            no_ack: false,
-            exclusive: false,
-            nowait: false,
             callback: $callback,
         );
 
@@ -125,11 +72,12 @@ final class ConsumeNotificationsCommand extends Command
 
         while ($channel->is_consuming()) {
             try {
-                $channel->wait(null, false, $this->option('once') ? 1 : 0);
+                $channel->wait(null, false, $this->shouldStopWhenQueueIsEmpty() ? 1 : 0);
             } catch (AMQPTimeoutException $exception) {
-                if ($this->option('once')) {
+                if ($this->shouldStopWhenQueueIsEmpty()) {
                     break;
                 }
+
                 throw $exception;
             }
         }
@@ -140,22 +88,84 @@ final class ConsumeNotificationsCommand extends Command
         return self::SUCCESS;
     }
 
-    private function handleTemporaryFailure(AMQPMessage $message, TemporaryProviderFailureException $exception): void
+    private function processMessage(
+        AMQPMessage                 $message,
+        NotificationDeliveryService $deliveryService,
+        int                         $limit,
+    ): void
+    {
+        try {
+            $recipientId = $this->extractRecipientId($message);
+
+            $deliveryService->send($recipientId);
+
+            /*
+             * Ack is sent only after provider processing and DB updates succeed.
+             * This is the core of at-least-once delivery: if the worker dies before ack,
+             * RabbitMQ can redeliver the message.
+             */
+            $message->ack();
+
+            $this->markMessageAsProcessed();
+
+            $this->info(sprintf('Processed notification recipient #%d', $recipientId));
+
+            $this->stopConsumerIfLimitReached($message, $limit);
+        } catch (TemporaryProviderFailureException $exception) {
+            $this->handleTemporaryFailure($message, $exception);
+            $this->stopConsumerIfLimitReached($message, $limit);
+        } catch (Throwable $exception) {
+            /*
+             * Invalid payloads and unexpected non-retryable errors are rejected
+             * without requeue to avoid infinite poison-message loops.
+             */
+            $message->reject(false);
+
+            $this->markMessageAsProcessed();
+
+            $this->error($exception->getMessage());
+
+            $this->stopConsumerIfLimitReached($message, $limit);
+        }
+    }
+
+    /**
+     * @throws \JsonException
+     */
+    private function extractRecipientId(AMQPMessage $message): int
     {
         $payload = json_decode($message->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        $recipientId = (int) ($payload['notification_recipient_id'] ?? 0);
+        $recipientId = (int)($payload['notification_recipient_id'] ?? 0);
+
+        if ($recipientId <= 0) {
+            throw new InvalidArgumentException('Invalid notification_recipient_id payload.');
+        }
+
+        return $recipientId;
+    }
+
+    /**
+     * @throws \JsonException
+     */
+    private function handleTemporaryFailure(
+        AMQPMessage                       $message,
+        TemporaryProviderFailureException $exception,
+    ): void
+    {
+        $recipientId = $this->extractRecipientId($message);
 
         $recipient = NotificationRecipient::query()->find($recipientId);
 
         if (!$recipient instanceof NotificationRecipient) {
             $message->reject(false);
+            $this->markMessageAsProcessed();
             $this->error('Recipient for retry was not found.');
 
             return;
         }
 
         $attemptsCount = $recipient->attempts()->count();
-        $maxAttempts = (int) config('notifications.max_attempts');
+        $maxAttempts = (int)config('notifications.max_attempts');
 
         if ($attemptsCount >= $maxAttempts) {
             $recipient->update([
@@ -163,39 +173,59 @@ final class ConsumeNotificationsCommand extends Command
                 'dropped_at' => now(),
             ]);
 
+            /*
+             * The message is acknowledged after the business retry limit is reached.
+             * At this point the message is no longer temporary-failed; it is finalized
+             * as dropped in the database.
+             */
             $message->ack();
 
-            $this->processedMessages++;
+            $this->markMessageAsProcessed();
 
-            $this->error(
-                sprintf(
-                    'Recipient #%d dropped after %d attempts: %s',
-                    $recipientId,
-                    $attemptsCount,
-                    $exception->getMessage()
-                )
-            );
+            $this->error(sprintf(
+                'Attempt %d/%d failed. Recipient #%d dropped: %s',
+                $attemptsCount,
+                $maxAttempts,
+                $recipientId,
+                $exception->getMessage()
+            ));
 
             return;
         }
 
         /*
-         * The message is rejected with requeue=true to let RabbitMQ deliver it again.
-         * This keeps delivery at-least-once while the service decides when to stop retrying.
+         * Requeue keeps the same RabbitMQ message alive for another delivery attempt.
+         * The delivery attempt itself is already persisted by NotificationDeliveryService,
+         * so retries remain observable in PostgreSQL.
          */
-        sleep((int) config('notifications.retry_delay_seconds'));
+        sleep((int)config('notifications.retry_delay_seconds'));
 
-        $message->reject(true);
+        $message->reject();
 
+        $this->markMessageAsProcessed();
+
+        $this->warn(sprintf(
+            'Attempt %d/%d failed. Recipient #%d requeued for retry.',
+            $attemptsCount,
+            $maxAttempts,
+            $recipientId
+        ));
+    }
+
+    private function stopConsumerIfLimitReached(AMQPMessage $message, int $limit): void
+    {
+        if ($limit > 0 && $this->processedMessages >= $limit) {
+            $message->getChannel()->stopConsume();
+        }
+    }
+
+    private function markMessageAsProcessed(): void
+    {
         $this->processedMessages++;
+    }
 
-        $this->warn(
-            sprintf(
-                'Temporary failure for recipient #%d. Requeued for retry. Attempts: %d/%d',
-                $recipientId,
-                $attemptsCount,
-                $maxAttempts
-            )
-        );
+    private function shouldStopWhenQueueIsEmpty(): bool
+    {
+        return (bool)$this->option('once');
     }
 }

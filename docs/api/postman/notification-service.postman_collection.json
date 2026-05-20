@@ -1,0 +1,236 @@
+{
+    "info": {
+        "name": "Notification Service API",
+        "_postman_id": "6f34c8d2-8b2a-4f08-a1b2-95c9eaf7e001",
+        "description": "Postman collection for Notification Service backend test assignment.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://localhost:8080"
+        }
+    ],
+    "item": [
+        {
+            "name": "Health Check",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/health",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "health"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Create SMS Transactional Notification",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Idempotency-Key",
+                        "value": "postman-sms-transactional-001"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"channel\": \"sms\",\n  \"priority\": \"transactional\",\n  \"message\": \"Your verification code is 123456\",\n  \"recipients\": [101, 102, 103]\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/notifications",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "notifications"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Create Email Marketing Notification",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Idempotency-Key",
+                        "value": "postman-email-marketing-001"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"channel\": \"email\",\n  \"priority\": \"marketing\",\n  \"message\": \"Spring campaign message\",\n  \"recipients\": [201, 202]\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/notifications",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "notifications"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Create Retry Test Notification",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Idempotency-Key",
+                        "value": "postman-retry-test-001"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"channel\": \"sms\",\n  \"priority\": \"transactional\",\n  \"message\": \"Retry test message\",\n  \"recipients\": [999]\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/notifications",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "notifications"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Create Invalid Notification Payload",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"channel\": \"telegram\",\n  \"priority\": \"urgent\",\n  \"message\": \"\",\n  \"recipients\": []\n}"
+                },
+                "url": {
+                    "raw": "{{base_url}}/api/notifications",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "notifications"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Subscriber Notification History",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/subscribers/101/notifications",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "subscribers",
+                        "101",
+                        "notifications"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "Subscriber History Filtered By Status And Channel",
+            "request": {
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{base_url}}/api/subscribers/101/notifications?status=sent&channel=sms&page=1&per_page=10",
+                    "host": [
+                        "{{base_url}}"
+                    ],
+                    "path": [
+                        "api",
+                        "subscribers",
+                        "101",
+                        "notifications"
+                    ],
+                    "query": [
+                        {
+                            "key": "status",
+                            "value": "sent"
+                        },
+                        {
+                            "key": "channel",
+                            "value": "sms"
+                        },
+                        {
+                            "key": "page",
+                            "value": "1"
+                        },
+                        {
+                            "key": "per_page",
+                            "value": "10"
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+}

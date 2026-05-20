@@ -6,6 +6,12 @@ namespace App\Infrastructure\RabbitMQ;
 
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 
+/**
+ * Creates RabbitMQ AMQP connections from application configuration.
+ *
+ * The factory keeps connection details in one place so publishers, consumers
+ * and setup commands do not need to know how RabbitMQ credentials are stored.
+ */
 final class RabbitMQConnectionFactory
 {
     /**
@@ -14,11 +20,11 @@ final class RabbitMQConnectionFactory
     public function create(): AMQPStreamConnection
     {
         return new AMQPStreamConnection(
-            host: config('rabbitmq.host'),
-            port: config('rabbitmq.port'),
-            user: config('rabbitmq.user'),
-            password: config('rabbitmq.password'),
-            vhost: config('rabbitmq.vhost'),
+            host: (string)config('rabbitmq.host'),
+            port: (int)config('rabbitmq.port'),
+            user: (string)config('rabbitmq.user'),
+            password: (string)config('rabbitmq.password'),
+            vhost: (string)config('rabbitmq.vhost'),
         );
     }
 }

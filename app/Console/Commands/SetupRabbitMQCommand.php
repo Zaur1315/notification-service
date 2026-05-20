@@ -9,43 +9,49 @@ use Illuminate\Console\Command;
 
 final class SetupRabbitMQCommand extends Command
 {
+    private const EXCHANGE_TYPE_DIRECT = 'direct';
+
     protected $signature = 'rabbitmq:setup';
 
     protected $description = 'Declare RabbitMQ exchange and notification queues.';
 
+    /**
+     * @throws \Exception
+     */
     public function handle(RabbitMQConnectionFactory $connectionFactory): int
     {
         $connection = $connectionFactory->create();
         $channel = $connection->channel();
 
-        $exchange = config('rabbitmq.exchange');
+        $exchange = (string)config('rabbitmq.exchange');
 
         /*
-         * Direct exchange keeps routing explicit:
-         * transactional notifications go to high-priority queue,
-         * marketing notifications go to default queue.
+         * A durable direct exchange is used because routing rules are explicit:
+         * transactional notifications are routed to the high-priority queue,
+         * while marketing notifications are routed to the default queue.
          */
         $channel->exchange_declare(
             exchange: $exchange,
-            type: 'direct',
-            passive: false,
+            type: self::EXCHANGE_TYPE_DIRECT,
             durable: true,
             auto_delete: false,
         );
 
-        foreach (config('rabbitmq.queues') as $key => $queue) {
-            $routingKey = config("rabbitmq.routing_keys.$key");
+        foreach ((array)config('rabbitmq.queues') as $key => $queue) {
+            $routingKey = (string)config("rabbitmq.routing_keys.$key");
 
+            /*
+             * Queues are durable so RabbitMQ can keep messages after broker restart
+             * when messages are also published as persistent.
+             */
             $channel->queue_declare(
-                queue: $queue,
-                passive: false,
+                queue: (string)$queue,
                 durable: true,
-                exclusive: false,
                 auto_delete: false,
             );
 
             $channel->queue_bind(
-                queue: $queue,
+                queue: (string)$queue,
                 exchange: $exchange,
                 routing_key: $routingKey,
             );

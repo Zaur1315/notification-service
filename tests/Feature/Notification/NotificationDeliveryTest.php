@@ -5,24 +5,26 @@ declare(strict_types=1);
 namespace Tests\Feature\Notification;
 
 use App\Domain\Notification\Enums\NotificationStatus;
+use App\Domain\Notification\Exceptions\TemporaryProviderFailureException;
 use App\Domain\Notification\Services\NotificationDeliveryService;
 use App\Models\Notification\Notification;
 use App\Models\Notification\NotificationRecipient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * Covers recipient-level delivery logic.
+ *
+ * These tests verify provider calls, status transitions and delivery attempt
+ * persistence without going through the HTTP API or RabbitMQ consumer.
+ */
 final class NotificationDeliveryTest extends TestCase
 {
     use RefreshDatabase;
 
     public function test_it_sends_queued_notification_recipient(): void
     {
-        $notification = Notification::query()->create([
-            'channel' => 'sms',
-            'priority' => 'transactional',
-            'message' => 'Delivery test message',
-            'idempotency_key' => 'delivery-test-001',
-        ]);
+        $notification = $this->createNotification();
 
         $recipient = NotificationRecipient::query()->create([
             'notification_id' => $notification->id,
@@ -30,10 +32,7 @@ final class NotificationDeliveryTest extends TestCase
             'status' => NotificationStatus::Queued,
         ]);
 
-        /** @var NotificationDeliveryService $service */
-        $service = app(NotificationDeliveryService::class);
-
-        $service->send((int) $recipient->id);
+        $this->deliveryService()->send((int)$recipient->id);
 
         $recipient->refresh();
 
@@ -49,16 +48,9 @@ final class NotificationDeliveryTest extends TestCase
         ]);
     }
 
-    public function test_it_drops_recipient_after_max_temporary_failures(): void
+    public function test_it_records_temporary_failures_as_delivery_attempts(): void
     {
-        config()->set('notifications.max_attempts', 3);
-
-        $notification = Notification::query()->create([
-            'channel' => 'sms',
-            'priority' => 'transactional',
-            'message' => 'Retry delivery test message',
-            'idempotency_key' => 'delivery-retry-test-001',
-        ]);
+        $notification = $this->createNotification('delivery-retry-test-001');
 
         $recipient = NotificationRecipient::query()->create([
             'notification_id' => $notification->id,
@@ -66,26 +58,21 @@ final class NotificationDeliveryTest extends TestCase
             'status' => NotificationStatus::Queued,
         ]);
 
-        /** @var NotificationDeliveryService $service */
-        $service = app(NotificationDeliveryService::class);
-
-        for ($i = 1; $i <= 3; $i++) {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
             try {
-                $service->send((int) $recipient->id);
-            } catch (\App\Domain\Notification\Exceptions\TemporaryProviderFailureException) {
+                $this->deliveryService()->send((int)$recipient->id);
+            } catch (TemporaryProviderFailureException) {
                 // Expected temporary failure from mock provider.
             }
         }
 
-        $recipient->update([
-            'status' => NotificationStatus::Dropped,
-            'dropped_at' => now(),
-        ]);
-
+        /*
+         * NotificationDeliveryService records failed attempts but does not decide
+         * when to mark a recipient as dropped. The consumer owns retry limit logic.
+         */
         $recipient->refresh();
 
-        self::assertSame(NotificationStatus::Dropped, $recipient->status);
-        self::assertNotNull($recipient->dropped_at);
+        self::assertSame(NotificationStatus::Queued, $recipient->status);
 
         $this->assertDatabaseCount('delivery_attempts', 3);
 
@@ -96,5 +83,23 @@ final class NotificationDeliveryTest extends TestCase
             'status' => NotificationStatus::Dropped->value,
             'error_message' => 'Temporary SMS provider failure.',
         ]);
+    }
+
+    private function createNotification(string $idempotencyKey = 'delivery-test-001'): Notification
+    {
+        return Notification::query()->create([
+            'channel' => 'sms',
+            'priority' => 'transactional',
+            'message' => 'Delivery test message',
+            'idempotency_key' => $idempotencyKey,
+        ]);
+    }
+
+    private function deliveryService(): NotificationDeliveryService
+    {
+        /** @var NotificationDeliveryService $service */
+        $service = app(NotificationDeliveryService::class);
+
+        return $service;
     }
 }
