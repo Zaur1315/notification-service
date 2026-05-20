@@ -6,6 +6,7 @@ namespace Tests\Feature\Notification;
 
 use App\Domain\Notification\Enums\NotificationStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Redis;
 use Tests\TestCase;
 
@@ -18,6 +19,8 @@ final class NotificationCreationTest extends TestCase
         parent::setUp();
 
         Redis::flushdb();
+
+        Artisan::call('rabbitmq:setup');
     }
 
     public function test_it_creates_notification_with_recipients(): void
