@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace app\Models\Notification;
+namespace App\Models\Notification;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
