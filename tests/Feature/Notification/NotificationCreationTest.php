@@ -10,6 +10,12 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Redis;
 use Tests\TestCase;
 
+/**
+ * Covers notification creation API behaviour.
+ *
+ * These tests verify validation, database persistence and idempotent request
+ * handling through the public HTTP endpoint.
+ */
 final class NotificationCreationTest extends TestCase
 {
     use RefreshDatabase;
@@ -18,8 +24,16 @@ final class NotificationCreationTest extends TestCase
     {
         parent::setUp();
 
+        /*
+         * RefreshDatabase resets PostgreSQL only. Redis must be cleared manually
+         * to keep idempotency keys isolated between tests.
+         */
         Redis::flushdb();
 
+        /*
+         * The API publishes created recipients to RabbitMQ, therefore exchange
+         * and queues must exist before sending requests in integration tests.
+         */
         Artisan::call('rabbitmq:setup');
     }
 

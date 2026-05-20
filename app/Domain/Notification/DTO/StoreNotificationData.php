@@ -7,6 +7,12 @@ namespace App\Domain\Notification\DTO;
 use App\Domain\Notification\Enums\NotificationChannel;
 use App\Domain\Notification\Enums\NotificationPriority;
 
+/**
+ * Immutable input DTO for notification creation.
+ *
+ * The DTO isolates validated transport data from HTTP layer implementation
+ * and provides a stable structure for domain services.
+ */
 final readonly class StoreNotificationData
 {
     public function __construct(

@@ -9,6 +9,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Represents delivery state for one subscriber within a notification batch.
+ *
+ * Queue messages are recipient-based, so each subscriber can be processed,
+ * retried and tracked independently.
+ */
 final class NotificationRecipient extends Model
 {
     protected $fillable = [
@@ -22,6 +28,10 @@ final class NotificationRecipient extends Model
     ];
 
     protected $casts = [
+        /*
+         * Enum casting keeps status transitions explicit and prevents accidental
+         * use of unsupported delivery states.
+         */
         'status' => NotificationStatus::class,
         'sent_at' => 'datetime',
         'delivered_at' => 'datetime',

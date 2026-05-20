@@ -10,8 +10,17 @@ use App\Domain\Notification\Enums\NotificationPriority;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
+/**
+ * Validates notification creation payload and converts it to a domain DTO.
+ *
+ * Keeping DTO creation here allows controllers to stay thin and prevents
+ * domain services from depending on raw HTTP request data.
+ */
 final class StoreNotificationRequest extends FormRequest
 {
+    private const MAX_MESSAGE_LENGTH = 5000;
+    private const MAX_RECIPIENTS_COUNT = 10000;
+
     public function authorize(): bool
     {
         return true;
@@ -33,13 +42,13 @@ final class StoreNotificationRequest extends FormRequest
             'message' => [
                 'required',
                 'string',
-                'max:5000',
+                'max:' . self::MAX_MESSAGE_LENGTH,
             ],
             'recipients' => [
                 'required',
                 'array',
                 'min:1',
-                'max:10000',
+                'max:' . self::MAX_RECIPIENTS_COUNT,
             ],
             'recipients.*' => [
                 'required',
@@ -56,8 +65,18 @@ final class StoreNotificationRequest extends FormRequest
             channel: NotificationChannel::from($this->string('channel')->toString()),
             priority: NotificationPriority::from($this->string('priority')->toString()),
             message: $this->string('message')->toString(),
-            recipientIds: array_map('intval', $this->input('recipients')),
+            recipientIds: $this->recipientIds(),
             idempotencyKey: $this->header('Idempotency-Key'),
         );
+    }
+
+    /**
+     * Returns validated recipient IDs as integers.
+     *
+     * @return int[]
+     */
+    private function recipientIds(): array
+    {
+        return array_map('intval', $this->input('recipients', []));
     }
 }

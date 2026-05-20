@@ -11,10 +11,19 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Redis;
 use Tests\TestCase;
 
+/**
+ * Covers the full async delivery chain.
+ *
+ * This integration test verifies the flow:
+ * HTTP API -> PostgreSQL -> RabbitMQ -> consumer -> provider mock -> database status update.
+ */
 final class NotificationQueueProcessingTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * @throws \Exception
+     */
     protected function setUp(): void
     {
         parent::setUp();
@@ -23,6 +32,10 @@ final class NotificationQueueProcessingTest extends TestCase
 
         Artisan::call('rabbitmq:setup');
 
+        /*
+         * RabbitMQ state is not reset by RefreshDatabase, so queues must be purged
+         * manually to keep test runs isolated and deterministic.
+         */
         $this->purgeRabbitMqQueues();
     }
 
@@ -40,6 +53,10 @@ final class NotificationQueueProcessingTest extends TestCase
 
         $response->assertCreated();
 
+        /*
+         * The --once option prevents the consumer from waiting forever when
+         * RabbitMQ has no more messages available during test execution.
+         */
         Artisan::call('notifications:consume', [
             '--limit' => 2,
             '--once' => true,
@@ -60,6 +77,9 @@ final class NotificationQueueProcessingTest extends TestCase
         ]);
     }
 
+    /**
+     * @throws \Exception
+     */
     private function purgeRabbitMqQueues(): void
     {
         /** @var RabbitMQConnectionFactory $connectionFactory */
@@ -68,8 +88,8 @@ final class NotificationQueueProcessingTest extends TestCase
         $connection = $connectionFactory->create();
         $channel = $connection->channel();
 
-        foreach (config('rabbitmq.queues') as $queue) {
-            $channel->queue_purge($queue);
+        foreach ((array)config('rabbitmq.queues') as $queue) {
+            $channel->queue_purge((string)$queue);
         }
 
         $channel->close();

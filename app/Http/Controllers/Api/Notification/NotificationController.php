@@ -10,6 +10,12 @@ use App\Http\Requests\Notification\StoreNotificationRequest;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 
+/**
+ * Handles notification creation API requests.
+ *
+ * The controller stays thin: validation and DTO creation are delegated to the
+ * request class, while business logic is handled by NotificationCreationService.
+ */
 final class NotificationController extends Controller
 {
     public function __construct(
@@ -18,6 +24,10 @@ final class NotificationController extends Controller
     {
     }
 
+    /**
+     * Creates a notification batch and schedules all recipients for async delivery.
+     * @throws \JsonException
+     */
     public function store(StoreNotificationRequest $request): JsonResponse
     {
         $notification = $this->notificationCreationService->create($request->toDto());

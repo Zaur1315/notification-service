@@ -11,6 +11,12 @@ use App\Models\Notification\NotificationRecipient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * Covers subscriber notification history API.
+ *
+ * These tests verify that recipient delivery status, notification metadata,
+ * delivery attempts and filter validation are returned correctly.
+ */
 final class SubscriberNotificationHistoryTest extends TestCase
 {
     use RefreshDatabase;
